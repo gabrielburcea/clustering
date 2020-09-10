@@ -1,0 +1,372 @@
+---
+title: "Final_clustering"
+author: "Gabriel Burcea"
+date: "19/08/2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(cluster)
+library(plotly)
+library(fpc)
+library(dendextend)
+library(factoextra)
+library(FactoMineR)
+library(NbClust)
+library(caret)
+library(DMwR)
+library(EnsCat)
+```
+
+
+```{r}
+
+
+data_cluster <- read_csv("/Users/gabrielburcea/Rprojects/stats_data_whole/data_categ_nosev_comorbidity_one.csv")
+
+
+data_select <- data_cluster %>%
+  dplyr::select(id, covid_tested, age, gender, number_morbidities, chills, cough, diarrhoea, fatigue, headache, loss_smell_taste, muscle_ache, 
+                nasal_congestion, nausea_vomiting, shortness_breath, sore_throat, sputum, temperature, loss_appetite, chest_pain, itchy_eyes, joint_pain, 
+                asthma, diabetes_type_one, diabetes_type_two, obesity, hypertension, heart_disease, lung_condition, liver_disease, kidney_disease) %>%
+  dplyr::filter(covid_tested != "none") 
+
+
+covid_tested_levels <- c("positive" = "showing symptoms")
+
+data_transf <- data_select %>% 
+  dplyr::mutate(covid_tested = forcats::fct_recode(covid_tested, !!!covid_tested_levels))
+
+
+data_piv<- data_transf %>%
+  pivot_longer(cols = 23:31, 
+               names_to = "comorbidities",
+               values_to = "Bolean") %>%
+  dplyr::filter(Bolean != "No")
+
+data_piv_id <- dplyr::mutate(data_piv, respondents_id = rownames(data_piv))
+
+data_clean <- data_piv_id %>%
+  dplyr::select(respondents_id, comorbidities, number_morbidities, age,  gender,number_morbidities, chills, cough, diarrhoea, fatigue, headache, loss_smell_taste, muscle_ache, 
+                nasal_congestion, nausea_vomiting, shortness_breath, sore_throat, sputum, temperature, loss_appetite, chest_pain, itchy_eyes, joint_pain) %>%
+  drop_na()
+  
+
+data_clean <- dplyr::mutate(data_clean, 
+                            n_cmdt =  ifelse(number_morbidities %in% 0 , "no morbidity", 
+                                      ifelse(number_morbidities %in% 1, "1 morbidity", 
+                                      ifelse(number_morbidities %in% 2 , "2 comorbidities",        
+                                      ifelse(number_morbidities %in% 3:99, ">3 comorbidites", NA))))) %>%
+  dplyr::select(-number_morbidities)
+  
+data_clean <- data_clean %>%
+  dplyr::mutate(age_band = case_when(age == 0 | age <= 19 ~ '0-19',
+                                     age == 20 | age <= 20 ~ '20-29',
+                                     age == 30 | age <= 39 ~ '30-39',
+                                     age == 40|  age <= 49 ~ '40-49',
+                                     age == 50|  age <= 59 ~ '50-59',
+                                     age == 60 | age <= 69 ~ '60-69',
+                                     age == 70 | age <= 79 ~ '70-79',
+                                     age == 80 | age <= 89 ~ '80-89',
+                                     age >= 90  ~ '90+')) %>%
+  dplyr::select(-age)
+
+
+data_clean <- data_clean %>%
+  dplyr::group_by(n_cmdt) %>%
+  tally()
+
+                                   
+
+
+#data_rec <- ifelse(data_piv_id[,3:19] == "Yes", 1,0)
+#data_clean <- cbind(data_piv_id[,1:2], data_rec)
+data_clean$gender <- as.factor(data_clean$gender)
+data_clean$age_band <- as.factor(data_clean$age_band)
+data_clean$comorbidities <- as.factor(data_clean$comorbidities)
+data_clean$n_cmdt <- as.factor(data_clean$n_cmdt)
+data_clean$chills <- as.factor(data_clean$chills)
+data_clean$cough <- as.factor(data_clean$cough)
+data_clean$diarrhoea <- as.factor(data_clean$diarrhoea)
+data_clean$fatigue <- as.factor(data_clean$fatigue)
+data_clean$headache <- as.factor(data_clean$headache)
+data_clean$loss_smell_taste <- as.factor(data_clean$loss_smell_taste)
+data_clean$muscle_ache <- as.factor(data_clean$muscle_ache)
+data_clean$ nasal_congestion <- as.factor(data_clean$ nasal_congestion)
+data_clean$nausea_vomiting <- as.factor(data_clean$nausea_vomiting)
+data_clean$shortness_breath <- as.factor(data_clean$shortness_breath)
+data_clean$sore_throat <- as.factor(data_clean$sore_throat)
+data_clean$sputum <- as.factor(data_clean$sputum)
+data_clean$temperature <- as.factor(data_clean$temperature)
+data_clean$loss_appetite <- as.factor(data_clean$loss_appetite)
+data_clean$chest_pain <- as.factor(data_clean$chest_pain)
+data_clean$itchy_eyes <- as.factor(data_clean$itchy_eyes)
+data_clean$joint_pain <- as.factor(data_clean$joint_pain)
+data_clean <- as.data.frame(data_clean)
+
+
+data_test <- head(data_clean, 500)
+
+
+rownames(data_test) <- data_test$respondents_id
+
+rownames(data_clean) <- data_clean$respondents_id
+
+my.seed <- set.seed(22)
+
+gower_distance <- cluster::daisy(data_test[,4:20], metric = "gower")
+
+
+count_comorb <- data_clean %>%
+  dplyr::group_by(n_cmdt) %>%
+  tally() %>%
+  dplyr::mutate(Freg = n/sum(n)*100)
+
+```
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r}
+#Hierarchicla clustering using Complete Linkage
+hc_complete_gower <- hclust(gower_distance, method = "complete")
+
+#Plot the obtained dendogram 
+plot(hc_complete_gower, cex = 0.6, hang = -31)
+```
+
+
+
+
+
+
+```{r}
+# Compute with agnes 
+hc_agnes <- agnes(data_test[,4:20], method = "complete")
+
+# Agglomerative coeffiecient 
+hc_agnes$ac
+
+# Agglomerative coeffiecient 
+#hc_agnes$ac
+
+#hc_agnes_2 <- agnes(data_test[,3:22], method = "ward")
+
+pltree(hc_agnes, cex = 0.6, hang = -1, main = "Dendrogram of agnes")
+
+
+```
+
+```{r}
+# compute divisive hierarchical clustering 
+hc_diana <- diana(data_test[,4:20])
+
+# Divisive coefficient; amount of clustering structure found 
+hc_diana$dc
+
+
+#plot dendogram 
+
+pltree(hc_diana, cex = 0.6, hang = -1, main = "Dendogram - divisive")
+
+```
+
+
+```{r}
+# Ward's method 
+
+#hc_ward_method <- hclust(gower_distance, method = "ward.D2")
+
+# Cut tree into 4 groups 
+
+#sub_grp <- cutree(hc_agnes, k = 4)
+
+#Number of countries in each cluster
+#table(sub_grp)
+
+
+#plot(hc_agnes)
+
+#rect.hclust(hc_ward_method , k = 4, border = 2:5)
+```
+
+
+
+```{r}
+cstats.table <- function(dist, tree, k) {
+  clust.assess <-
+    c(
+      "cluster.number",
+      "n",
+      "within.cluster.ss",
+      "average.within",
+      "average.between",
+      "wb.ratio",
+      "dunn2",
+      "avg.silwidth"
+    )
+  
+  clust.size <- c("cluster.size")
+  
+  stats.names <- c()
+  
+  row.clust <- c()
+  
+  output.stats <- matrix(ncol = k, nrow = length(clust.assess))
+  
+  cluster.sizes <- matrix(ncol = k, nrow = k)
+  for (i in c(1:k)) {
+    row.clust[i] <- paste("Cluster-", i, " size")
+  }
+  for (i in c(2:k)) {
+    stats.names[i] <- paste("Test", i - 1)
+    
+    for (j in seq_along(clust.assess)) {
+      output.stats[j, i] <-
+        unlist(cluster.stats(d = dist, clustering = cutree(tree, k = i))[clust.assess])[j]
+      
+    }
+    
+    for (d in 1:k) {
+      cluster.sizes[d, i] <-
+        unlist(cluster.stats(d = dist, clustering = cutree(tree, k = i))[clust.size])[d]
+      dim(cluster.sizes[d, i]) <- c(length(cluster.sizes[i]), 1)
+      cluster.sizes[d, i]
+      
+    }
+  }
+  
+  output.stats.df <- data.frame(output.stats)
+  cluster.sizes <- data.frame(cluster.sizes)
+  cluster.sizes[is.na(cluster.sizes)] <- 0
+  rows.all <- c(clust.assess, row.clust)
+  # rownames(output.stats.df) <- clust.assess
+  output <- rbind(output.stats.df, cluster.sizes)[, -1]
+  colnames(output) <- stats.names[2:k]
+  rownames(output) <- rows.all
+  is.num <- sapply(output, is.numeric)
+  output[is.num] <- lapply(output[is.num], round, 2)
+  output
+}
+```
+
+
+```{r}
+
+stats_divisive <- cstats.table(gower_distance, hc_diana, 10)
+
+
+
+knitr::kable(stats_divisive)
+```
+
+
+
+```{r}
+stats_agglomerative <- cstats.table(gower_distance,  hc_agnes, 10)
+
+knitr::kable(stats_agglomerative)  
+
+```
+
+
+```{r}
+elb_div <-
+  ggplot(data = data.frame(t(
+    cstats.table(gower_distance, hc_diana, 10)
+  )),
+  aes(x = cluster.number, y = within.cluster.ss)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("Divisive clustering") +
+  labs(x = "Number of clusters", y = "Within clusters sum of squares(SS)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_minimal()
+
+elb_div
+```
+
+
+```{r}
+elb_agglomerative <-
+  ggplot(data = data.frame(t(
+    cstats.table(gower_distance, hc_agnes, 10)
+  )),
+  aes(x = cluster.number, y = within.cluster.ss)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("Aglomerative clustering") +
+  labs(x = "Number of clusters", y = "Within clusters sum of squares(SS)") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_minimal()
+
+elb_agglomerative
+
+```
+
+
+
+```{r}
+sil_div <-
+  ggplot(data = data.frame(t(
+    cstats.table(gower_distance, hc_diana , 10)
+  )),
+  aes(x = cluster.number, y = avg.silwidth)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("Divisive clustering") +
+  labs(x = "Number of clusters", y = "Average silhouette width") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_minimal()
+
+sil_div
+```
+
+
+
+```{r}
+sil_agglomerative <-
+  ggplot(data = data.frame(t(
+    cstats.table(gower_distance, hc_agnes, 10)
+  )),
+  aes(x = cluster.number, y = avg.silwidth)) +
+  geom_point() +
+  geom_line() +
+  ggtitle("Aglomerative clustering") +
+  labs(x = "Number of clusters", y = "Average silhouette width") +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_minimal()
+
+sil_agglomerative
+```
+
+
+
+```{r}
+fviz_dend(hc_agnes, k = 3, 
+          cex = 0.5, 
+          k_colors = c("#2E9FDF", "#00AFBB", "#E7B800"), 
+          color_labels_by_k = TRUE, 
+          rect = TRUE)
+
+```
+
+
+```{r}
+
+hc_agness_tree <- as.data.frame(cutree(hc_agnes, k=3)) 
+
+#data_clustered <- cbind(hc_agness_tree, data_test)
+
+#write.csv(data_clustered, file = "/Users/gabrielburcea/rprojects/data/data_clustered.csv")
+
+```
